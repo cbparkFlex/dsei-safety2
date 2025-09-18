@@ -148,6 +148,11 @@ export default function Dashboard() {
     cctv002: null,
     cctv003: null
   });
+  const imageRefs = useRef<{[key: string]: HTMLImageElement | null}>({
+    cctv001: null,
+    cctv002: null,
+    cctv003: null
+  });
 
   // 알림 메시지 추가 함수
   const addAlertMessage = (alert: Omit<AlertMessage, 'id' | 'timestamp'>) => {
@@ -425,21 +430,34 @@ export default function Dashboard() {
     }
   };
 
-  // 스트림 일시정지/재개 (비디오 스트림용)
+  // 스트림 일시정지/재개 (이미지 스트림용)
   const toggleStreamPause = (cameraId: string) => {
-    const video = videoRefs.current[cameraId];
-    if (!video) return;
+    const img = imageRefs.current[cameraId];
+    if (!img) return;
 
     const isPaused = isStreamPaused[cameraId];
     
     if (isPaused) {
-      // 재개
-      video.play();
+      // 재개 - 이미지 새로고침 재시작
+      const stream = cctvStreams.find(s => s.isActive && s.order === parseInt(cameraId.replace('cctv', '')));
+      if (stream) {
+        const refreshInterval = setInterval(() => {
+          if (img.parentNode) {
+            img.src = stream.streamUrl + '?t=' + Date.now();
+          } else {
+            clearInterval(refreshInterval);
+          }
+        }, 1000);
+        (img as any).refreshInterval = refreshInterval;
+      }
       setIsStreamPaused(prev => ({ ...prev, [cameraId]: false }));
       console.log(`스트림 재개: ${cameraId}`);
     } else {
-      // 일시정지
-      video.pause();
+      // 일시정지 - 이미지 새로고침 중지
+      if ((img as any).refreshInterval) {
+        clearInterval((img as any).refreshInterval);
+        (img as any).refreshInterval = null;
+      }
       setIsStreamPaused(prev => ({ ...prev, [cameraId]: true }));
       console.log(`스트림 일시정지: ${cameraId}`);
     }
@@ -447,25 +465,22 @@ export default function Dashboard() {
 
   // 스트림 정리 (메모리 절약)
   const cleanupStream = (cameraId: string) => {
-    const video = videoRefs.current[cameraId];
+    const img = imageRefs.current[cameraId];
     
-    if (video) {
+    if (img) {
       try {
-        // HLS 인스턴스 정리
-        if ((video as any).hls) {
-          (video as any).hls.destroy();
-          (video as any).hls = null;
+        // 새로고침 인터벌 정리
+        if ((img as any).refreshInterval) {
+          clearInterval((img as any).refreshInterval);
         }
         
-        // 비디오 정지 및 소스 제거
-        video.pause();
-        video.src = '';
-        video.load(); // 리소스 해제
+        // 이미지 소스 제거
+        img.src = '';
         
         // ref에서 제거
-        videoRefs.current[cameraId] = null;
+        imageRefs.current[cameraId] = null;
         
-        console.log(`비디오 스트림 정리 완료: ${cameraId}`);
+        console.log(`이미지 스트림 정리 완료: ${cameraId}`);
       } catch (error) {
         console.error(`스트림 정리 오류 (${cameraId}):`, error);
       }
@@ -473,8 +488,8 @@ export default function Dashboard() {
   };
 
 
-  // HLS 스트림 초기화 (비디오 스트림)
-  const initializeHLSStream = (cameraId: string) => {
+  // 이미지 스트림 초기화 (실시간 이미지)
+  const initializeImageStream = (cameraId: string) => {
     // 데이터베이스에서 가져온 CCTV 스트림 사용
     const stream = cctvStreams.find(s => s.isActive && s.order === parseInt(cameraId.replace('cctv', '')));
     if (!stream) {
@@ -485,77 +500,48 @@ export default function Dashboard() {
     }
 
     const streamUrl = stream.streamUrl;
-    const video = videoRefs.current[cameraId];
-    
-    if (!video) {
-      console.warn(`비디오 요소를 찾을 수 없습니다: ${cameraId}`);
-      return;
-    }
 
-    // HLS.js 라이브러리 로드 및 초기화
-    if (typeof window !== 'undefined' && (window as any).Hls) {
-      const hls = new (window as any).Hls({
-        enableWorker: false,
-        lowLatencyMode: true,
-        backBufferLength: 90
-      });
-      
-      hls.loadSource(streamUrl);
-      hls.attachMedia(video);
-      
-      hls.on((window as any).Hls.Events.MANIFEST_PARSED, () => {
-        console.log(`HLS 스트림 로드 완료: ${cameraId}`);
-        setIsStreamLoading(prev => ({ ...prev, [cameraId]: false }));
-        setStreamError(prev => ({ ...prev, [cameraId]: null }));
-        setIsStreamPaused(prev => ({ ...prev, [cameraId]: false }));
-        
-        // 스트림 통계 업데이트
-        setStreamStats(prev => ({
-          ...prev,
-          [cameraId]: {
-            memoryUsage: Math.round(Math.random() * 50 + 10), // 임시 데이터
-            frameCount: Math.round(Math.random() * 1000 + 500)
-          }
-        }));
-      });
-      
-      hls.on((window as any).Hls.Events.ERROR, (event: any, data: any) => {
-        console.error(`HLS 스트림 오류 (${cameraId}):`, data);
-        setStreamError(prev => ({ ...prev, [cameraId]: '비디오 스트림을 로드할 수 없습니다' }));
-        setIsStreamLoading(prev => ({ ...prev, [cameraId]: false }));
-      });
-      
-      // HLS 인스턴스를 비디오 요소에 저장
-      (video as any).hls = hls;
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari의 네이티브 HLS 지원
-      video.src = streamUrl;
-      video.addEventListener('loadedmetadata', () => {
-        console.log(`네이티브 HLS 스트림 로드 완료: ${cameraId}`);
-        setIsStreamLoading(prev => ({ ...prev, [cameraId]: false }));
-        setStreamError(prev => ({ ...prev, [cameraId]: null }));
-        setIsStreamPaused(prev => ({ ...prev, [cameraId]: false }));
-        
-        // 스트림 통계 업데이트
-        setStreamStats(prev => ({
-          ...prev,
-          [cameraId]: {
-            memoryUsage: Math.round(Math.random() * 50 + 10), // 임시 데이터
-            frameCount: Math.round(Math.random() * 1000 + 500)
-          }
-        }));
-      });
-      
-      video.addEventListener('error', () => {
-        console.error(`네이티브 HLS 스트림 오류 (${cameraId}):`, streamUrl);
-        setStreamError(prev => ({ ...prev, [cameraId]: '비디오 스트림을 로드할 수 없습니다' }));
-        setIsStreamLoading(prev => ({ ...prev, [cameraId]: false }));
-      });
-    } else {
-      console.error(`HLS를 지원하지 않는 브라우저: ${cameraId}`);
-      setStreamError(prev => ({ ...prev, [cameraId]: '브라우저가 HLS를 지원하지 않습니다' }));
+    // 이미지 요소 생성
+    const img = document.createElement('img');
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'cover';
+    img.style.display = 'block';
+    img.style.margin = 'auto';
+    img.style.backgroundColor = 'hsl(0, 0%, 25%)';
+    img.alt = `CCTV ${cameraId}`;
+    
+    // ref에 저장
+    imageRefs.current[cameraId] = img;
+
+    // 이미지 로드 이벤트
+    img.onload = () => {
+      console.log(`이미지 스트림 로드 완료: ${cameraId}`);
       setIsStreamLoading(prev => ({ ...prev, [cameraId]: false }));
-    }
+      setStreamError(prev => ({ ...prev, [cameraId]: null }));
+      setIsStreamPaused(prev => ({ ...prev, [cameraId]: false }));
+    };
+
+    img.onerror = () => {
+      console.error(`이미지 스트림 오류 (${cameraId}):`, streamUrl);
+      setStreamError(prev => ({ ...prev, [cameraId]: `스트림 서버에 연결할 수 없습니다 (${streamUrl})` }));
+      setIsStreamLoading(prev => ({ ...prev, [cameraId]: false }));
+    };
+
+    // 이미지 소스 설정
+    img.src = streamUrl;
+    
+    // 실시간 업데이트를 위한 주기적 새로고침 (1초마다)
+    const refreshInterval = setInterval(() => {
+      if (img.parentNode) {
+        img.src = streamUrl + '?t=' + Date.now();
+      } else {
+        clearInterval(refreshInterval);
+      }
+    }, 1000);
+
+    // 정리 함수 저장
+    (img as any).refreshInterval = refreshInterval;
   };
 
   useEffect(() => {
@@ -597,7 +583,7 @@ export default function Dashboard() {
       fetchWeatherInfo();
     }, 600000); // 10분 = 600,000ms
 
-    // HLS 스트림 초기화 (CCTV 스트림 데이터 로드 후)
+    // 이미지 스트림 초기화 (CCTV 스트림 데이터 로드 후)
     const streamInitTimeout = setTimeout(() => {
       // 활성화된 CCTV 스트림들을 순서대로 초기화
       cctvStreams
@@ -605,7 +591,7 @@ export default function Dashboard() {
         .sort((a, b) => a.order - b.order)
         .forEach((stream, index) => {
           const cameraId = `cctv${String(index + 1).padStart(3, '0')}`;
-          initializeHLSStream(cameraId);
+          initializeImageStream(cameraId);
         });
     }, 2000); // 2초 후 스트림 초기화 (CCTV 데이터 로드 대기)
 
@@ -663,9 +649,9 @@ export default function Dashboard() {
       clearInterval(weatherInterval);
       clearTimeout(streamInitTimeout);
       
-      // 비디오 스트림 정리
-      Object.keys(videoRefs.current).forEach(cameraId => {
-        if (videoRefs.current[cameraId]) {
+      // 이미지 스트림 정리
+      Object.keys(imageRefs.current).forEach(cameraId => {
+        if (imageRefs.current[cameraId]) {
           cleanupStream(cameraId);
         }
       });
@@ -687,37 +673,12 @@ export default function Dashboard() {
           .sort((a, b) => a.order - b.order)
           .forEach((stream, index) => {
             const cameraId = `cctv${String(index + 1).padStart(3, '0')}`;
-            initializeHLSStream(cameraId);
+            initializeImageStream(cameraId);
           });
       }, 1000);
     }
   }, [cctvStreams]); // cctvStreams가 변경될 때마다 실행
 
-  // HLS.js 라이브러리 로드
-  useEffect(() => {
-    const loadHLS = async () => {
-      if (typeof window !== 'undefined' && !(window as any).Hls) {
-        try {
-          const script = document.createElement('script');
-          script.src = 'https://cdn.jsdelivr.net/npm/hls.js@latest';
-          script.async = true;
-          document.head.appendChild(script);
-          
-          script.onload = () => {
-            console.log('HLS.js 라이브러리 로드 완료');
-          };
-          
-          script.onerror = () => {
-            console.error('HLS.js 라이브러리 로드 실패');
-          };
-        } catch (error) {
-          console.error('HLS.js 라이브러리 로드 중 오류:', error);
-        }
-      }
-    };
-    
-    loadHLS();
-  }, []);
 
   // 현재 활성화된 알림 메시지
   const activeAlert = alertMessages.find(alert => alert.isActive);
@@ -1057,6 +1018,7 @@ export default function Dashboard() {
                     <div className="text-red-400 text-sm text-center">
                       <div className="mb-2">스트림 연결 실패</div>
                       <div className="text-xs text-gray-400">{streamError.cctv001}</div>
+                      <div className="text-xs text-gray-500 mt-1">스트림 서버가 실행 중인지 확인해주세요</div>
                       <button 
                         onClick={() => {
                           // 기존 스트림 완전 정리
@@ -1067,7 +1029,7 @@ export default function Dashboard() {
                           setIsStreamPaused(prev => ({ ...prev, cctv001: false }));
                           // 1초 후 재연결
                           setTimeout(() => {
-                            initializeHLSStream('cctv001');
+                            initializeImageStream('cctv001');
                           }, 1000);
                         }}
                         className="mt-2 px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
@@ -1076,23 +1038,14 @@ export default function Dashboard() {
                       </button>
                     </div>
                   ) : (
-                    <video
-                      ref={(el) => { videoRefs.current.cctv001 = el; }}
-                      className="w-full h-full object-cover"
-                      controls
-                      autoPlay
-                      muted
-                      playsInline
-                      onLoadStart={() => setIsStreamLoading(prev => ({ ...prev, cctv001: true }))}
-                      onCanPlay={() => setIsStreamLoading(prev => ({ ...prev, cctv001: false }))}
-                      onError={(e) => {
-                        console.error('Video error (cctv001):', e);
-                        setStreamError(prev => ({ ...prev, cctv001: '비디오 스트림을 로드할 수 없습니다' }));
-                        setIsStreamLoading(prev => ({ ...prev, cctv001: false }));
+                    <div
+                      ref={(el) => { 
+                        if (el && imageRefs.current.cctv001) {
+                          el.appendChild(imageRefs.current.cctv001);
+                        }
                       }}
-                    >
-                      <div className="text-white text-sm">브라우저가 비디오를 지원하지 않습니다.</div>
-                    </video>
+                      className="w-full h-full"
+                    />
                   )}
                 </div>
                 <div className="absolute top-2 left-2 bg-red-500 text-white text-xs px-2 py-1 rounded">
@@ -1122,7 +1075,7 @@ export default function Dashboard() {
                       setIsStreamPaused(prev => ({ ...prev, cctv001: false }));
                       // 1초 후 재연결
                       setTimeout(() => {
-                        initializeHLSStream('cctv001');
+                        initializeImageStream('cctv001');
                       }, 1000);
                     }}
                     className="bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1 rounded"
@@ -1156,6 +1109,7 @@ export default function Dashboard() {
                     <div className="text-red-400 text-sm text-center">
                       <div className="mb-2">스트림 연결 실패</div>
                       <div className="text-xs text-gray-400">{streamError.cctv002}</div>
+                      <div className="text-xs text-gray-500 mt-1">스트림 서버가 실행 중인지 확인해주세요</div>
                       <button 
                         onClick={() => {
                           // 기존 스트림 완전 정리
@@ -1166,7 +1120,7 @@ export default function Dashboard() {
                           setIsStreamPaused(prev => ({ ...prev, cctv002: false }));
                           // 1초 후 재연결
                           setTimeout(() => {
-                            initializeHLSStream('cctv002');
+                            initializeImageStream('cctv002');
                           }, 1000);
                         }}
                         className="mt-2 px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
@@ -1175,23 +1129,14 @@ export default function Dashboard() {
                       </button>
                     </div>
                   ) : (
-                    <video
-                      ref={(el) => { videoRefs.current.cctv002 = el; }}
-                      className="w-full h-full object-cover"
-                      controls
-                      autoPlay
-                      muted
-                      playsInline
-                      onLoadStart={() => setIsStreamLoading(prev => ({ ...prev, cctv002: true }))}
-                      onCanPlay={() => setIsStreamLoading(prev => ({ ...prev, cctv002: false }))}
-                      onError={(e) => {
-                        console.error('Video error (cctv002):', e);
-                        setStreamError(prev => ({ ...prev, cctv002: '비디오 스트림을 로드할 수 없습니다' }));
-                        setIsStreamLoading(prev => ({ ...prev, cctv002: false }));
+                    <div
+                      ref={(el) => { 
+                        if (el && imageRefs.current.cctv002) {
+                          el.appendChild(imageRefs.current.cctv002);
+                        }
                       }}
-                    >
-                      <div className="text-white text-sm">브라우저가 비디오를 지원하지 않습니다.</div>
-                    </video>
+                      className="w-full h-full"
+                    />
                   )}
                 </div>
                 <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">
@@ -1215,7 +1160,7 @@ export default function Dashboard() {
                       setIsStreamPaused(prev => ({ ...prev, cctv002: false }));
                       // 1초 후 재연결
                       setTimeout(() => {
-                        initializeHLSStream('cctv002');
+                        initializeImageStream('cctv002');
                       }, 1000);
                     }}
                     className="bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1 rounded"

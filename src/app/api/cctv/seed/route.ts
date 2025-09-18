@@ -6,12 +6,12 @@ export async function POST() {
     // 기존 데이터 삭제
     await prisma.cctvStream.deleteMany();
 
-    // 기본 CCTV 스트림 데이터 생성
+    // 기본 CCTV 스트림 데이터 생성 (CORS 문제 해결을 위해 로컬 IP 사용)
     const defaultStreams = [
       {
         name: "A동 출입구",
         description: "A동 출입구 실시간 모니터링",
-        streamUrl: "http://210.99.70.120:1935/live/cctv001.stream/playlist.m3u8",
+        streamUrl: "http://localhost:8000/video/cam1",
         location: "A동 출입구",
         isActive: true,
         order: 1
@@ -19,7 +19,7 @@ export async function POST() {
       {
         name: "B동 출입구",
         description: "B동 출입구 실시간 모니터링",
-        streamUrl: "http://210.99.70.120:1935/live/cctv002.stream/playlist.m3u8",
+        streamUrl: "http://localhost:8000/video/cam2",
         location: "B동 출입구",
         isActive: true,
         order: 2
@@ -27,7 +27,7 @@ export async function POST() {
       {
         name: "LPG 저장소",
         description: "LPG 저장소 실시간 모니터링",
-        streamUrl: "http://210.99.70.120:1935/live/cctv003.stream/playlist.m3u8",
+        streamUrl: "http://localhost:8000/video/cam3",
         location: "LPG 저장소",
         isActive: true,
         order: 3

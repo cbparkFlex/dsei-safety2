@@ -153,10 +153,11 @@ export async function POST(request: NextRequest) {
         }
 
         // 실제 RSSI 데이터 가져오기
-        console.log(`측정 데이터 요청: ${addSession.beaconId}, ${addSession.gatewayId}`);
-        let currentRSSI = getLatestRSSI(addSession.beaconId, addSession.gatewayId);
+        console.log(`📊 측정 데이터 요청: beaconId=${addSession.beaconId}, gatewayId=${addSession.gatewayId}`);
+        console.log(`📊 세션 정보: 거리=${addSession.distance}m, 측정횟수=${addSession.measurements.length}`);
+        let currentRSSI = await getLatestRSSI(addSession.beaconId, addSession.gatewayId);
         
-        // 임시 해결책: RSSI 데이터가 없으면 시뮬레이션 값 사용
+        // RSSI 데이터가 없으면 시뮬레이션 값 사용
         if (currentRSSI === null) {
           console.log(`RSSI 데이터 없음: ${addSession.beaconId}_${addSession.gatewayId}, 시뮬레이션 값 사용`);
           // 거리에 따른 시뮬레이션 RSSI 값 생성

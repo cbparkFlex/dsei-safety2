@@ -100,7 +100,7 @@ export default function GatewayManagement() {
       }
     } catch (error) {
       console.error("저장 실패:", error);
-      alert("저장 중 오류가 발생했습니다: " + error.message);
+      alert("저장 중 오류가 발생했습니다: " + (error instanceof Error ? error.message : String(error)));
     } finally {
       setLoading(false);
     }
@@ -142,7 +142,7 @@ export default function GatewayManagement() {
       }
     } catch (error) {
       console.error("삭제 실패:", error);
-      alert("삭제 중 오류가 발생했습니다: " + error.message);
+      alert("삭제 중 오류가 발생했습니다: " + (error instanceof Error ? error.message : String(error)));
     }
   };
 
@@ -292,7 +292,7 @@ export default function GatewayManagement() {
         const result = await response.json();
         
         // 측정 세션 업데이트
-        setMeasurementSession(prev => ({
+        setMeasurementSession((prev: any) => ({
           ...prev,
           measurementCount: result.measurementCount,
           averageRSSI: result.averageRSSI
@@ -708,7 +708,11 @@ function RealTimeMeasurementForm({
       const response = await fetch("/api/beacons");
       if (response.ok) {
         const data = await response.json();
-        setBeacons(data.beacons || []);
+        console.log("Beacon API 응답:", data); // 디버깅용
+        setBeacons(data.data || []);
+      } else {
+        console.error("Beacon API 응답 실패:", response.status);
+        setBeacons([]);
       }
     } catch (error) {
       console.error("Beacon 목록 조회 실패:", error);
@@ -743,12 +747,16 @@ function RealTimeMeasurementForm({
                 className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                 required
               >
-                <option value="">Beacon 선택</option>
-                {Array.isArray(beacons) && beacons.map((beacon) => (
-                  <option key={beacon.id} value={beacon.beaconId}>
-                    {beacon.name} ({beacon.beaconId})
-                  </option>
-                ))}
+                <option value="">Beacon 선택 ({beacons.length}개)</option>
+                {Array.isArray(beacons) && beacons.length > 0 ? (
+                  beacons.map((beacon) => (
+                    <option key={beacon.id} value={beacon.beaconId}>
+                      {beacon.name} ({beacon.beaconId})
+                    </option>
+                  ))
+                ) : (
+                  <option value="" disabled>Beacon 데이터가 없습니다</option>
+                )}
               </select>
             </div>
 
