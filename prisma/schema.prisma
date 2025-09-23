@@ -165,10 +165,10 @@ model LogRetentionPolicy {
 
 model SurveillanceRecord {
   id          Int      @id @default(autoincrement())
-  type        String   // "safety_equipment", "fire_explosion", "gas_leak"
+  type        String   // "safety_equipment", "fire_explosion"
   title       String   // 알람 제목
   message     String   // 상세 메시지
-  location    String   // 감지 위치 (예: "A동 4번 센서", "LPG 저장소", "작업장 내 LPG 배관")
+  location    String   // 감지 위치 (예: "A동 4번 센서", "작업장")
   severity    String   @default("warning") // "info", "warning", "danger", "critical"
   status      String   @default("active") // "active", "resolved", "acknowledged"
   source      String   @default("cctv") // "cctv", "sensor", "manual"
@@ -187,7 +187,7 @@ model SurveillanceRecord {
 // 비상 상황 SOP (Standard Operating Procedure)
 model EmergencySOP {
   id          Int      @id @default(autoincrement())
-  type        String   // "lpg_gas_leak", "safety_equipment", "crane_worker", "lpg_explosion"
+  type        String   // "safety_equipment", "crane_worker"
   name        String   // SOP 이름
   description String?  // SOP 설명
   isActive    Boolean  @default(true) @map("is_active")

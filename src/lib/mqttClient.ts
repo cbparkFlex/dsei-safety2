@@ -10,10 +10,12 @@ export const latestRSSIData = new Map<string, { rssi: number; timestamp: number 
 // 중복 메시지 방지를 위한 처리된 메시지 추적
 const processedMessages = new Map<string, number>();
 const MESSAGE_DEDUP_WINDOW = 1000; // 1초 내 중복 메시지 무시
+const MAX_PROCESSED_MESSAGES = 1000; // 최대 처리된 메시지 수
 
 // 비콘 명령 전송 중복 방지
 const pendingCommands = new Map<string, { timestamp: number; promise: Promise<boolean> }>();
 const COMMAND_DEDUP_WINDOW = 5000; // 5초 내 중복 명령 무시
+const MAX_PENDING_COMMANDS = 100; // 최대 대기 중인 명령 수
 
 // MQTT 클라이언트 설정
 const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
@@ -137,10 +139,10 @@ export async function sendBeaconCommand(beaconId: string, command: any, gatewayI
       };
 
       // 응답 리스너 등록
-      mqttClient.on('message', responseHandler);
+      mqttClient?.on('message', responseHandler);
       
       // 명령 전송
-      mqttClient.publish(subactionTopic, JSON.stringify(gatewayMessage), (error) => {
+      mqttClient?.publish(subactionTopic, JSON.stringify(gatewayMessage), (error) => {
         if (error) {
           console.error(`비콘 명령 전송 실패: ${beaconId}`, error);
           clearTimeout(timeout);
@@ -249,6 +251,9 @@ export function initializeMQTTClient(): Promise<boolean> {
         // 스케줄러 초기화
         initializeScheduler();
         
+        // 주기적 메모리 정리 (5분마다)
+        setInterval(cleanupMemory, 5 * 60 * 1000);
+        
         isInitializing = false;
         initializationPromise = null;
         resolve(true);
@@ -264,9 +269,9 @@ export function initializeMQTTClient(): Promise<boolean> {
 mqttClient.on('message', (topic, message) => {
   // MQTT 메시지 수신 로그 간소화 (5초마다만 출력)
   const now = Date.now();
-  if (!mqttClient.lastLogTime || now - mqttClient.lastLogTime > 5000) {
+  if (!(mqttClient as any).lastLogTime || now - (mqttClient as any).lastLogTime > 5000) {
     console.log(`📨 MQTT 메시지 수신: ${topic}`);
-    mqttClient.lastLogTime = now;
+    (mqttClient as any).lastLogTime = now;
   }
   
   // 응답 토픽에 대한 특별한 로그
@@ -413,9 +418,9 @@ async function handleBeaconMessage(topic: string, message: Buffer) {
 async function handleGatewayMessage(topic: string, gatewayMessage: GatewayMessage) {
   // Gateway 메시지 처리 로그 간소화 (10초마다만 출력)
   const now = Date.now();
-  if (!handleGatewayMessage.lastLogTime || now - handleGatewayMessage.lastLogTime > 10000) {
+  if (!(handleGatewayMessage as any).lastLogTime || now - (handleGatewayMessage as any).lastLogTime > 10000) {
     console.log(`📡 Gateway 처리: ${gatewayMessage.obj.length}개 Beacon`);
-    handleGatewayMessage.lastLogTime = now;
+    (handleGatewayMessage as any).lastLogTime = now;
   }
   
   for (const beaconData of gatewayMessage.obj) {
@@ -467,14 +472,9 @@ async function processBeaconMessage(messageData: BeaconMessage) {
     // 메시지 처리 시간 기록
     processedMessages.set(messageKey, now);
     
-    // 오래된 메시지 키 정리 (메모리 누수 방지)
-    if (processedMessages.size > 1000) {
-      const cutoff = now - MESSAGE_DEDUP_WINDOW * 10;
-      for (const [key, timestamp] of processedMessages.entries()) {
-        if (timestamp < cutoff) {
-          processedMessages.delete(key);
-        }
-      }
+    // 메모리 정리 (주기적으로 호출)
+    if (processedMessages.size > MAX_PROCESSED_MESSAGES) {
+      cleanupMemory();
     }
 
     // Beacon 정보 조회 (먼저 등록된 Beacon인지 확인)
@@ -688,14 +688,82 @@ async function handleProximityAlert(alertData: ProximityAlertData) {
 }
 
 /**
+ * 메모리 정리 함수
+ */
+export function cleanupMemory() {
+  try {
+    // 오래된 처리된 메시지 정리
+    const now = Date.now();
+    const cutoff = now - MESSAGE_DEDUP_WINDOW * 10;
+    
+    for (const [key, timestamp] of processedMessages.entries()) {
+      if (timestamp < cutoff) {
+        processedMessages.delete(key);
+      }
+    }
+    
+    // 최대 크기 초과 시 오래된 항목 삭제
+    if (processedMessages.size > MAX_PROCESSED_MESSAGES) {
+      const entries = Array.from(processedMessages.entries());
+      entries.sort((a, b) => a[1] - b[1]); // 시간순 정렬
+      
+      const toDelete = entries.slice(0, entries.length - MAX_PROCESSED_MESSAGES);
+      for (const [key] of toDelete) {
+        processedMessages.delete(key);
+      }
+    }
+    
+    // 오래된 대기 중인 명령 정리
+    for (const [key, command] of pendingCommands.entries()) {
+      if (now - command.timestamp > COMMAND_DEDUP_WINDOW * 2) {
+        pendingCommands.delete(key);
+      }
+    }
+    
+    // 최대 크기 초과 시 오래된 명령 삭제
+    if (pendingCommands.size > MAX_PENDING_COMMANDS) {
+      const entries = Array.from(pendingCommands.entries());
+      entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+      
+      const toDelete = entries.slice(0, entries.length - MAX_PENDING_COMMANDS);
+      for (const [key] of toDelete) {
+        pendingCommands.delete(key);
+      }
+    }
+    
+    // 오래된 RSSI 데이터 정리 (5분 이상 된 데이터)
+    const rssiCutoff = now - 5 * 60 * 1000; // 5분
+    for (const [key, data] of latestRSSIData.entries()) {
+      if (data.timestamp < rssiCutoff) {
+        latestRSSIData.delete(key);
+      }
+    }
+    
+    console.log(`🧹 메모리 정리 완료: processedMessages=${processedMessages.size}, pendingCommands=${pendingCommands.size}, latestRSSIData=${latestRSSIData.size}`);
+  } catch (error) {
+    console.error('메모리 정리 중 오류:', error);
+  }
+}
+
+/**
  * MQTT 클라이언트 종료
  */
 export function disconnectMQTTClient() {
   if (mqttClient) {
     console.log('MQTT 클라이언트 종료 중...');
+    
+    // 모든 이벤트 리스너 제거
+    mqttClient.removeAllListeners();
+    
+    // 클라이언트 종료
     mqttClient.end();
     mqttClient = null;
   }
+  
+  // 메모리 정리
+  cleanupMemory();
+  
+  // 상태 초기화
   isInitializing = false;
   initializationPromise = null;
 }

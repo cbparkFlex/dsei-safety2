@@ -13,6 +13,22 @@ const measurementSessions = new Map<string, {
   isActive: boolean;
 }>();
 
+// 오래된 세션 정리 (1시간 이상 된 세션)
+const cleanupOldSessions = () => {
+  const now = Date.now();
+  const oneHour = 60 * 60 * 1000;
+  
+  for (const [key, session] of measurementSessions.entries()) {
+    if (now - session.startTime.getTime() > oneHour) {
+      measurementSessions.delete(key);
+      console.log(`🧹 오래된 측정 세션 정리: ${key}`);
+    }
+  }
+};
+
+// 주기적 세션 정리 (5분마다)
+setInterval(cleanupOldSessions, 5 * 60 * 1000);
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

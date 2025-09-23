@@ -119,7 +119,7 @@ export default function Dashboard() {
     'crane-b-1': { top: 66, left: 28, status: 'safe' },
     'crane-b-2': { top: 66, left: 49, status: 'safe' },
     'cctv-1': { top: 20, left: 71, status: 'normal' },
-    'cctv-2': { top: 66, left: 85, status: 'normal' }
+    'cctv-2': { top: 66, left: 60, status: 'normal' }
   });
 
   // 비디오 스트림 관련 상태
