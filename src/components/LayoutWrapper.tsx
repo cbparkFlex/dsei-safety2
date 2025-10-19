@@ -11,6 +11,16 @@ interface LayoutWrapperProps {
 export default function LayoutWrapper({ children }: LayoutWrapperProps) {
   const pathname = usePathname();
   const isDashboard = pathname === '/';
+  const isPressPage = pathname.startsWith('/press');
+
+  // 프레스 페이지는 GNB와 사이드메뉴 없이 전체 화면 사용
+  if (isPressPage) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        {children}
+      </div>
+    );
+  }
 
   return (
     <>

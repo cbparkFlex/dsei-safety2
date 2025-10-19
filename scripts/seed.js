@@ -82,70 +82,45 @@ async function seed() {
       });
     }
 
-    // 샘플 센서 데이터 삽입
-    const sampleSensors = [
+    // 샘플 CCTV 스트림 데이터 삽입
+    const sampleCCTVStreams = [
       {
-        sensorId: 'SENSOR001',
-        name: '가스 센서 1',
-        type: 'gas',
-        location: '1층 작업장',
-        status: 'active'
+        name: 'A동 출입구',
+        description: 'A동 메인 출입구 CCTV',
+        streamUrl: 'http://192.168.1.100:8080/stream',
+        location: 'A동 1층',
+        isActive: true,
+        order: 1
       },
       {
-        sensorId: 'SENSOR002',
-        name: '가스 센서 2',
-        type: 'gas',
-        location: '2층 작업장',
-        status: 'active'
+        name: 'B동 작업장',
+        description: 'B동 작업장 CCTV',
+        streamUrl: 'http://192.168.1.101:8080/stream',
+        location: 'B동 2층',
+        isActive: true,
+        order: 2
       },
       {
-        sensorId: 'SENSOR003',
-        name: '온도 센서 1',
-        type: 'temperature',
-        location: '1층 작업장',
-        status: 'active'
+        name: '주차장',
+        description: '주차장 감시 CCTV',
+        streamUrl: 'http://192.168.1.102:8080/stream',
+        location: '지하 주차장',
+        isActive: true,
+        order: 3
       }
     ];
 
-    for (const sensorData of sampleSensors) {
-      await prisma.sensor.upsert({
-        where: { sensorId: sensorData.sensorId },
-        update: {},
-        create: sensorData,
+    for (const cctvData of sampleCCTVStreams) {
+      // 기존 데이터가 있는지 확인
+      const existing = await prisma.cctvStream.findFirst({
+        where: { name: cctvData.name }
       });
-    }
-
-    // 샘플 CCTV 데이터 삽입
-    const sampleCCTV = [
-      {
-        cameraId: 'CAM001',
-        name: 'CCTV 카메라 1',
-        location: '1층 입구',
-        ipAddress: '192.168.1.100',
-        status: 'active'
-      },
-      {
-        cameraId: 'CAM002',
-        name: 'CCTV 카메라 2',
-        location: '2층 작업장',
-        ipAddress: '192.168.1.101',
-        status: 'active'
-      },
-      {
-        cameraId: 'CAM003',
-        name: 'CCTV 카메라 3',
-        location: '주차장',
-        ipAddress: '192.168.1.102',
-        status: 'active'
+      
+      if (!existing) {
+        await prisma.cctvStream.create({
+          data: cctvData,
+        });
       }
-    ];
-
-    for (const cctvData of sampleCCTV) {
-      await prisma.cCTV.upsert({
-        where: { cameraId: cctvData.cameraId },
-        update: {},
-        create: cctvData,
-      });
     }
 
     // 관리자 계정 생성
